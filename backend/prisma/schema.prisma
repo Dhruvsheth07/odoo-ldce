@@ -1,0 +1,224 @@
+// GlobeTrotter - Complete Database Schema
+// PostgreSQL via Prisma ORM
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Users ──────────────────────────────────────────────
+model User {
+  id                String   @id @default(uuid())
+  email             String   @unique
+  passwordHash      String   @map("password_hash")
+  name              String
+  profileImageUrl   String?  @map("profile_image_url")
+  preferredCurrency String   @default("USD") @map("preferred_currency")
+  preferredLanguage String   @default("en") @map("preferred_language")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  trips             Trip[]
+  savedDestinations SavedDestination[]
+
+  @@map("users")
+}
+
+// ─── Trips ──────────────────────────────────────────────
+model Trip {
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  name          String
+  description   String?  @db.Text
+  coverImageUrl String?  @map("cover_image_url")
+  startDate     DateTime @map("start_date") @db.Date
+  endDate       DateTime @map("end_date") @db.Date
+  budget        Decimal  @default(0) @db.Decimal(12, 2)
+  currency      String   @default("USD")
+  isPublic      Boolean  @default(false) @map("is_public")
+  shareToken    String?  @unique @map("share_token")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stops      TripStop[]
+  transports TripTransport[]
+  expenses   Expense[]
+
+  @@index([userId])
+  @@map("trips")
+}
+
+// ─── Destinations (shared city/place reference) ─────────
+model Destination {
+  id          String   @id @default(uuid())
+  name        String
+  country     String?
+  placeId     String?  @map("place_id")
+  latitude    Float?
+  longitude   Float?
+  imageUrl    String?  @map("image_url")
+  description String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  tripStops         TripStop[]
+  savedDestinations SavedDestination[]
+
+  @@unique([placeId])
+  @@map("destinations")
+}
+
+// ─── Trip Stops (cities within a trip) ──────────────────
+model TripStop {
+  id            String   @id @default(uuid())
+  tripId        String   @map("trip_id")
+  destinationId String   @map("destination_id")
+  arrivalDate   DateTime @map("arrival_date") @db.Date
+  departureDate DateTime @map("departure_date") @db.Date
+  orderIndex    Int      @default(0) @map("order_index")
+  notes         String?  @db.Text
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  trip           Trip                @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  destination    Destination         @relation(fields: [destinationId], references: [id])
+  activities     TripActivity[]
+  accommodations TripAccommodation[]
+  expenses       Expense[]
+
+  @@index([tripId])
+  @@index([destinationId])
+  @@map("trip_stops")
+}
+
+// ─── Trip Activities (places, tours, experiences) ───────
+model TripActivity {
+  id             String    @id @default(uuid())
+  tripStopId     String    @map("trip_stop_id")
+  externalId     String?   @map("external_id")
+  name           String
+  description    String?   @db.Text
+  category       String?
+  imageUrl       String?   @map("image_url")
+  price          Decimal?  @db.Decimal(10, 2)
+  priceCurrency  String?   @map("price_currency")
+  priceType      String?   @default("UNAVAILABLE") @map("price_type") // EXACT, FROM, ESTIMATED, RANGE, UNAVAILABLE
+  rating         Float?
+  bookingUrl     String?   @map("booking_url")
+  scheduledDate  DateTime? @map("scheduled_date") @db.Date
+  startTime      String?   @map("start_time") // HH:mm format
+  endTime        String?   @map("end_time")   // HH:mm format
+  dayOrder       Int?      @default(0) @map("day_order")
+  provider       String?
+  priceCheckedAt DateTime? @map("price_checked_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  tripStop TripStop  @relation(fields: [tripStopId], references: [id], onDelete: Cascade)
+  expenses Expense[]
+
+  @@index([tripStopId])
+  @@map("trip_activities")
+}
+
+// ─── Trip Accommodations ────────────────────────────────
+model TripAccommodation {
+  id             String    @id @default(uuid())
+  tripStopId     String    @map("trip_stop_id")
+  externalId     String?   @map("external_id")
+  name           String
+  imageUrl       String?   @map("image_url")
+  rating         Float?
+  distanceKm     Float?    @map("distance_km")
+  roomInfo       String?   @map("room_info")
+  pricePerNight  Decimal?  @map("price_per_night") @db.Decimal(10, 2)
+  totalPrice     Decimal?  @map("total_price") @db.Decimal(10, 2)
+  priceCurrency  String?   @map("price_currency")
+  priceType      String?   @default("UNAVAILABLE") @map("price_type")
+  provider       String?
+  bookingUrl     String?   @map("booking_url")
+  checkIn        DateTime  @map("check_in") @db.Date
+  checkOut       DateTime  @map("check_out") @db.Date
+  guests         Int       @default(1)
+  rooms          Int       @default(1)
+  priceCheckedAt DateTime? @map("price_checked_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  tripStop TripStop  @relation(fields: [tripStopId], references: [id], onDelete: Cascade)
+  expenses Expense[]
+
+  @@index([tripStopId])
+  @@map("trip_accommodations")
+}
+
+// ─── Trip Transports (inter-city: flights, trains, buses) ──
+model TripTransport {
+  id              String    @id @default(uuid())
+  tripId          String    @map("trip_id")
+  fromStopId      String?   @map("from_stop_id")
+  toStopId        String?   @map("to_stop_id")
+  transportType   String    @map("transport_type") // FLIGHT, TRAIN, BUS
+  provider        String?
+  carrier         String?
+  price           Decimal?  @db.Decimal(10, 2)
+  priceCurrency   String?   @map("price_currency")
+  priceType       String?   @default("UNAVAILABLE") @map("price_type")
+  departureTime   DateTime? @map("departure_time")
+  arrivalTime     DateTime? @map("arrival_time")
+  durationMinutes Int?      @map("duration_minutes")
+  bookingUrl      String?   @map("booking_url")
+  externalId      String?   @map("external_id")
+  priceCheckedAt  DateTime? @map("price_checked_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  trip     Trip      @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  expenses Expense[]
+
+  @@index([tripId])
+  @@map("trip_transports")
+}
+
+// ─── Expenses ───────────────────────────────────────────
+model Expense {
+  id              String    @id @default(uuid())
+  tripId          String    @map("trip_id")
+  tripStopId      String?   @map("trip_stop_id")
+  activityId      String?   @map("activity_id")
+  accommodationId String?   @map("accommodation_id")
+  transportId     String?   @map("transport_id")
+  category        String    // TRANSPORT, ACCOMMODATION, ACTIVITY, FOOD, SHOPPING, OTHER
+  title           String
+  estimatedAmount Decimal?  @map("estimated_amount") @db.Decimal(10, 2)
+  actualAmount    Decimal?  @map("actual_amount") @db.Decimal(10, 2)
+  currency        String    @default("USD")
+  expenseDate     DateTime? @map("expense_date") @db.Date
+  notes           String?   @db.Text
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  trip          Trip               @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  tripStop      TripStop?          @relation(fields: [tripStopId], references: [id], onDelete: SetNull)
+  activity      TripActivity?      @relation(fields: [activityId], references: [id], onDelete: SetNull)
+  accommodation TripAccommodation? @relation(fields: [accommodationId], references: [id], onDelete: SetNull)
+  transport     TripTransport?     @relation(fields: [transportId], references: [id], onDelete: SetNull)
+
+  @@index([tripId])
+  @@index([tripStopId])
+  @@map("expenses")
+}
+
+// ─── Saved Destinations ─────────────────────────────────
+model SavedDestination {
+  id            String   @id @default(uuid())
+  userId        String   @map("user_id")
+  destinationId String   @map("destination_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  destination Destination @relation(fields: [destinationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, destinationId])
+  @@map("saved_destinations")
+}
